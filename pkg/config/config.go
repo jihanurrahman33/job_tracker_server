@@ -5,24 +5,31 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // Config holds the application configuration settings.
 type Config struct {
-	Port            string
-	DatabaseURL     string
-	SessionSecret   string
-	Environment     string
-	IsRender        bool
-	MaxOpenConns    int
-	MaxIdleConns    int
-	ConnMaxLifetime time.Duration
-	ConnMaxIdleTime time.Duration
-	ReadTimeout     time.Duration
-	WriteTimeout    time.Duration
-	IdleTimeout     time.Duration
+	Port               string
+	DatabaseURL        string
+	SessionSecret      string
+	Environment        string
+	IsRender           bool
+	MaxOpenConns       int
+	MaxIdleConns       int
+	ConnMaxLifetime    time.Duration
+	ConnMaxIdleTime    time.Duration
+	ReadTimeout        time.Duration
+	WriteTimeout       time.Duration
+	IdleTimeout        time.Duration
+	CORSAllowedOrigins []string
+	RateLimitRPS       float64
+	RateLimitBurst     int
+	KeepAliveEnabled   bool
+	KeepAliveURL       string
+	KeepAliveInterval  time.Duration
 }
 
 // Load loads configuration from environment variables, automatically loading .env if available.
@@ -40,19 +47,68 @@ func Load() *Config {
 		env = "production"
 	}
 
+	// CORS origins
+	corsOriginsStr := getEnv("CORS_ALLOWED_ORIGINS", "*")
+	var corsOrigins []string
+	for _, o := range strings.Split(corsOriginsStr, ",") {
+		if trimmed := strings.TrimSpace(o); trimmed != "" {
+			corsOrigins = append(corsOrigins, trimmed)
+		}
+	}
+	if len(corsOrigins) == 0 {
+		corsOrigins = []string{"*"}
+	}
+
+	// Rate limiting settings (default 20 req/s, burst 60)
+	rps, _ := strconv.ParseFloat(getEnv("RATE_LIMIT_RPS", "20"), 64)
+	if rps <= 0 {
+		rps = 20
+	}
+	burst, _ := strconv.Atoi(getEnv("RATE_LIMIT_BURST", "60"))
+	if burst <= 0 {
+		burst = 60
+	}
+
+	// Keep-alive anti-sleep settings (Render free-tier pinger)
+	keepAliveURL := getEnv("KEEP_ALIVE_URL", "")
+	if keepAliveURL == "" && isRender {
+		// Default to Render service external URL if known
+		if extURL := os.Getenv("RENDER_EXTERNAL_URL"); extURL != "" {
+			keepAliveURL = extURL + "/healthz"
+		} else {
+			keepAliveURL = "https://job-tracker-server-9drb.onrender.com/healthz"
+		}
+	}
+
+	keepAliveIntervalMin, _ := strconv.Atoi(getEnv("KEEP_ALIVE_INTERVAL_MINUTES", "10"))
+	if keepAliveIntervalMin <= 0 {
+		keepAliveIntervalMin = 10
+	}
+
+	keepAliveEnabled := isRender || keepAliveURL != ""
+	if disabledStr := os.Getenv("KEEP_ALIVE_ENABLED"); disabledStr == "false" || disabledStr == "0" {
+		keepAliveEnabled = false
+	}
+
 	return &Config{
-		Port:            port,
-		DatabaseURL:     dbURL,
-		SessionSecret:   sessionSecret,
-		Environment:     env,
-		IsRender:        isRender,
-		MaxOpenConns:    15,
-		MaxIdleConns:    5,
-		ConnMaxLifetime: 15 * time.Minute,
-		ConnMaxIdleTime: 5 * time.Minute,
-		ReadTimeout:     15 * time.Second,
-		WriteTimeout:    20 * time.Second,
-		IdleTimeout:     60 * time.Second,
+		Port:               port,
+		DatabaseURL:        dbURL,
+		SessionSecret:      sessionSecret,
+		Environment:        env,
+		IsRender:           isRender,
+		MaxOpenConns:       15,
+		MaxIdleConns:       5,
+		ConnMaxLifetime:    15 * time.Minute,
+		ConnMaxIdleTime:    5 * time.Minute,
+		ReadTimeout:        15 * time.Second,
+		WriteTimeout:       20 * time.Second,
+		IdleTimeout:        60 * time.Second,
+		CORSAllowedOrigins: corsOrigins,
+		RateLimitRPS:       rps,
+		RateLimitBurst:     burst,
+		KeepAliveEnabled:   keepAliveEnabled,
+		KeepAliveURL:       keepAliveURL,
+		KeepAliveInterval:  time.Duration(keepAliveIntervalMin) * time.Minute,
 	}
 }
 
@@ -106,7 +162,6 @@ func resolveDatabaseURL() string {
 
 // normalizeDatabaseURL handles url compatibility adjustments if needed
 func normalizeDatabaseURL(dbURL string) string {
-	// If it starts with postgresql://, lib/pq handles it, but postgres:// is standard
 	return dbURL
 }
 

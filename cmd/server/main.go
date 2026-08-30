@@ -40,6 +40,11 @@ func main() {
 		go application.Reminder.Start(shutdownCtx, 10*time.Second)
 	}
 
+	// Start keep-alive anti-sleep background pinger if enabled
+	if application.KeepAlive != nil {
+		go application.KeepAlive.Start(shutdownCtx)
+	}
+
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      application.Handler,

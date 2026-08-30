@@ -14,6 +14,7 @@ import (
 	"job-tracker/pkg/config"
 	"job-tracker/pkg/database"
 	"job-tracker/pkg/interview"
+	"job-tracker/pkg/keepalive"
 	"job-tracker/pkg/middleware"
 	"job-tracker/pkg/reminder"
 	"job-tracker/pkg/response"
@@ -23,11 +24,12 @@ import (
 
 // App encapsulates dependencies and the HTTP handler.
 type App struct {
-	Handler  http.Handler
-	DB       *database.DB
-	Config   *config.Config
-	Logger   *slog.Logger
-	Reminder *reminder.Worker
+	Handler   http.Handler
+	DB        *database.DB
+	Config    *config.Config
+	Logger    *slog.Logger
+	Reminder  *reminder.Worker
+	KeepAlive *keepalive.Pinger
 }
 
 // BuildApp initializes configurations, database connection, repositories, services, and routes.
@@ -91,6 +93,12 @@ func BuildApp(cfg *config.Config, logger *slog.Logger) *App {
 	var reminderWorker *reminder.Worker
 	if db != nil {
 		reminderWorker = reminder.NewWorker(reminderRepo, logger)
+	}
+
+	// Keep-Alive Anti-Sleep Worker
+	var keepAlivePinger *keepalive.Pinger
+	if cfg.KeepAliveEnabled && cfg.KeepAliveURL != "" {
+		keepAlivePinger = keepalive.NewPinger(cfg.KeepAliveURL, cfg.KeepAliveInterval, logger)
 	}
 
 	// Handlers
@@ -179,17 +187,29 @@ func BuildApp(cfg *config.Config, logger *slog.Logger) *App {
 	// Statistics routes
 	mux.Handle("GET /api/v1/statistics", wrapAuth(statsHandler.Get))
 
-	// Global middleware stack: RequestID -> Logging -> Recovery -> mux
+	// CORS options
+	corsOpts := middleware.DefaultCORSOptions()
+	if len(cfg.CORSAllowedOrigins) > 0 {
+		corsOpts.AllowedOrigins = cfg.CORSAllowedOrigins
+	}
+
+	// Rate limiter (token-bucket)
+	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
+
+	// Global middleware stack: CORS -> RequestID -> Logging -> RateLimit -> Recovery -> mux
 	var handler http.Handler = mux
 	handler = middleware.Recovery(logger)(handler)
+	handler = rateLimiter.Limit()(handler)
 	handler = middleware.Logging(logger)(handler)
 	handler = middleware.RequestID(handler)
+	handler = middleware.CORS(corsOpts)(handler)
 
 	return &App{
-		Handler:  handler,
-		DB:       db,
-		Config:   cfg,
-		Logger:   logger,
-		Reminder: reminderWorker,
+		Handler:   handler,
+		DB:        db,
+		Config:    cfg,
+		Logger:    logger,
+		Reminder:  reminderWorker,
+		KeepAlive: keepAlivePinger,
 	}
 }
