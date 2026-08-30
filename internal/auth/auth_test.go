@@ -10,7 +10,7 @@ import (
 )
 
 type mockUserRepo struct {
-	users map[string]*user.User
+	users   map[string]*user.User
 	byEmail map[string]*user.User
 }
 
