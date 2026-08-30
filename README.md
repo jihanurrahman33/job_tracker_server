@@ -17,11 +17,17 @@ Built completely using standard library Go (`net/http`, `database/sql`, `encodin
 
 ```text
 job-tracker/
+├── api/
+│   └── index.go                        # Vercel serverless function entrypoint
+│
 ├── cmd/
 │   └── server/
-│       └── main.go                     # Entrypoint & server orchestration
+│       └── main.go                     # Standalone daemon entrypoint (Render, Docker, Local)
 │
 ├── internal/
+│   ├── app/                            # Shared application builder & router wiring
+│   │   └── app.go
+│   │
 │   ├── application/                    # Application domain (CRUD, events, filtering)
 │   │   ├── handler.go
 │   │   ├── handler_test.go
@@ -39,10 +45,10 @@ job-tracker/
 │   │   ├── service.go
 │   │   └── session.go
 │   │
-│   ├── config/                         # Environment & application config
+│   ├── config/                         # Environment & cloud database resolution
 │   │   └── config.go
 │   │
-│   ├── database/                       # Database connection pooling & migrations
+│   ├── database/                       # Connection pooling, retries & migrations
 │   │   ├── database.go
 │   │   └── migrate.go
 │   │
@@ -101,6 +107,7 @@ job-tracker/
 ├── docker-compose.yml
 ├── go.mod
 ├── go.sum
+├── vercel.json                         # Vercel serverless configuration
 └── README.md
 ```
 
