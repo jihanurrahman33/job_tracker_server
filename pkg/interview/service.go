@@ -19,8 +19,8 @@ func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) Create(ctx context.Context, interview *Interview) error {
-	return s.repo.Create(ctx, interview)
+func (s *Service) Create(ctx context.Context, userID string, interview *Interview) error {
+	return s.repo.Create(ctx, userID, interview)
 }
 
 func (s *Service) Get(ctx context.Context, userID, id string) (*Interview, error) {

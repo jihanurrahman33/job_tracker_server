@@ -9,6 +9,10 @@ import (
 	"job-tracker/pkg/database"
 )
 
+var (
+	ErrApplicationNotFound = errors.New("application not found or does not belong to user")
+)
+
 type postgresRepository struct {
 	db *database.DB
 }
@@ -18,7 +22,18 @@ func NewPostgresRepository(db *database.DB) Repository {
 	return &postgresRepository{db: db}
 }
 
-func (r *postgresRepository) Create(ctx context.Context, i *Interview) error {
+func (r *postgresRepository) Create(ctx context.Context, userID string, i *Interview) error {
+	// First verify the parent application belongs to this user
+	var appExists bool
+	checkQuery := `SELECT EXISTS(SELECT 1 FROM applications WHERE id = $1 AND user_id = $2)`
+	err := r.db.QueryRowContext(ctx, checkQuery, i.ApplicationID, userID).Scan(&appExists)
+	if err != nil {
+		return fmt.Errorf("failed to verify application ownership: %w", err)
+	}
+	if !appExists {
+		return ErrApplicationNotFound
+	}
+
 	query := `
 		INSERT INTO interviews (
 			id, application_id, type, scheduled_at, duration_minutes,

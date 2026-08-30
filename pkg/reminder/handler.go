@@ -3,6 +3,7 @@ package reminder
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -50,6 +51,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Title = strings.TrimSpace(req.Title)
+	req.RemindAt = strings.TrimSpace(req.RemindAt)
+
 	if req.Title == "" || req.RemindAt == "" {
 		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Validation failed", map[string]string{
 			"title":     "title is required",
@@ -58,9 +61,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	remindAt, err := time.Parse(time.RFC3339, req.RemindAt)
+	remindAt, err := parseFlexibleTime(req.RemindAt)
 	if err != nil {
-		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "remind_at must be RFC3339 formatted", nil)
+		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Invalid remind_at format. Supported: RFC3339, ISO, or YYYY-MM-DD HH:MM", nil)
 		return
 	}
 
@@ -74,7 +77,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.Create(r.Context(), rem); err != nil {
-		response.Error(w, http.StatusInternalServerError, response.ErrCodeInternalError, "Failed to create reminder", nil)
+		response.Error(w, http.StatusInternalServerError, response.ErrCodeInternalError, fmt.Sprintf("Failed to create reminder: %v", err), nil)
 		return
 	}
 
@@ -110,7 +113,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := r.PathValue("id")
+	id := strings.TrimSpace(r.PathValue("id"))
 	current, err := h.service.Get(r.Context(), userID, id)
 	if err != nil {
 		if errors.Is(err, ErrReminderNotFound) {
@@ -134,9 +137,9 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		current.Description = strings.TrimSpace(*req.Description)
 	}
 	if req.RemindAt != nil {
-		parsed, err := time.Parse(time.RFC3339, *req.RemindAt)
+		parsed, err := parseFlexibleTime(*req.RemindAt)
 		if err != nil {
-			response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "remind_at must be RFC3339 formatted", nil)
+			response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Invalid remind_at format", nil)
 			return
 		}
 		current.RemindAt = parsed
@@ -161,11 +164,32 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := r.PathValue("id")
+	id := strings.TrimSpace(r.PathValue("id"))
 	if err := h.service.Delete(r.Context(), userID, id); err != nil {
 		response.Error(w, http.StatusNotFound, response.ErrCodeNotFound, "Reminder not found", nil)
 		return
 	}
 
 	response.NoContent(w)
+}
+
+func parseFlexibleTime(str string) (time.Time, error) {
+	str = strings.TrimSpace(str)
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05.999999999Z07:00",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+	}
+
+	for _, format := range formats {
+		if t, err := time.Parse(format, str); err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unable to parse date string: %s", str)
 }

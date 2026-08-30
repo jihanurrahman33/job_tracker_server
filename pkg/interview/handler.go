@@ -3,6 +3,7 @@ package interview
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -41,14 +42,15 @@ type updateInterviewRequest struct {
 
 // Create handles POST /api/v1/applications/{id}/interviews
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	if _, ok := middleware.UserIDFromContext(r.Context()); !ok {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
 		response.Error(w, http.StatusUnauthorized, response.ErrCodeUnauthorized, "Authentication required", nil)
 		return
 	}
 
-	appID := r.PathValue("id")
+	appID := strings.TrimSpace(r.PathValue("id"))
 	if appID == "" {
-		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Missing application ID", nil)
+		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Missing application ID in URL path", nil)
 		return
 	}
 
@@ -58,18 +60,22 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Type = strings.TrimSpace(req.Type)
-	if req.Type == "" || req.ScheduledAt == "" {
-		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Validation failed", map[string]string{
-			"type":         "type is required",
-			"scheduled_at": "scheduled_at is required",
+	req.Type = strings.ToUpper(strings.TrimSpace(req.Type))
+	req.ScheduledAt = strings.TrimSpace(req.ScheduledAt)
+
+	if req.Type == "" {
+		req.Type = string(TypeTechnical) // default to TECHNICAL if omitted
+	}
+	if req.ScheduledAt == "" {
+		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "scheduled_at is required", map[string]string{
+			"scheduled_at": "scheduled_at is required (e.g. 2026-09-03T15:00:00Z or 2026-09-03 15:00)",
 		})
 		return
 	}
 
-	scheduledAt, err := time.Parse(time.RFC3339, req.ScheduledAt)
+	scheduledAt, err := parseFlexibleTime(req.ScheduledAt)
 	if err != nil {
-		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "scheduled_at must be RFC3339 formatted", nil)
+		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Invalid scheduled_at format. Supported: RFC3339, ISO, or YYYY-MM-DD HH:MM", nil)
 		return
 	}
 
@@ -83,8 +89,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		Notes:           strings.TrimSpace(req.Notes),
 	}
 
-	if err := h.service.Create(r.Context(), interview); err != nil {
-		response.Error(w, http.StatusInternalServerError, response.ErrCodeInternalError, "Failed to create interview", nil)
+	if err := h.service.Create(r.Context(), userID, interview); err != nil {
+		if errors.Is(err, ErrApplicationNotFound) {
+			response.Error(w, http.StatusNotFound, response.ErrCodeNotFound, "Application not found or does not belong to user", nil)
+			return
+		}
+		response.Error(w, http.StatusInternalServerError, response.ErrCodeInternalError, fmt.Sprintf("Failed to create interview: %v", err), nil)
 		return
 	}
 
@@ -99,7 +109,7 @@ func (h *Handler) ListByApplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appID := r.PathValue("id")
+	appID := strings.TrimSpace(r.PathValue("id"))
 	interviews, err := h.service.ListByApplication(r.Context(), userID, appID)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, response.ErrCodeInternalError, "Failed to fetch interviews", nil)
@@ -121,7 +131,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := r.PathValue("id")
+	id := strings.TrimSpace(r.PathValue("id"))
 	interview, err := h.service.Get(r.Context(), userID, id)
 	if err != nil {
 		if errors.Is(err, ErrInterviewNotFound) {
@@ -143,7 +153,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := r.PathValue("id")
+	id := strings.TrimSpace(r.PathValue("id"))
 	current, err := h.service.Get(r.Context(), userID, id)
 	if err != nil {
 		if errors.Is(err, ErrInterviewNotFound) {
@@ -161,12 +171,12 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Type != nil {
-		current.Type = Type(*req.Type)
+		current.Type = Type(strings.ToUpper(strings.TrimSpace(*req.Type)))
 	}
 	if req.ScheduledAt != nil {
-		parsed, err := time.Parse(time.RFC3339, *req.ScheduledAt)
+		parsed, err := parseFlexibleTime(*req.ScheduledAt)
 		if err != nil {
-			response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "scheduled_at must be RFC3339 formatted", nil)
+			response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Invalid scheduled_at format", nil)
 			return
 		}
 		current.ScheduledAt = parsed
@@ -175,13 +185,13 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		current.DurationMinutes = req.DurationMinutes
 	}
 	if req.Location != nil {
-		current.Location = *req.Location
+		current.Location = strings.TrimSpace(*req.Location)
 	}
 	if req.MeetingURL != nil {
-		current.MeetingURL = *req.MeetingURL
+		current.MeetingURL = strings.TrimSpace(*req.MeetingURL)
 	}
 	if req.Notes != nil {
-		current.Notes = *req.Notes
+		current.Notes = strings.TrimSpace(*req.Notes)
 	}
 
 	if err := h.service.Update(r.Context(), userID, id, current); err != nil {
@@ -200,11 +210,33 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := r.PathValue("id")
+	id := strings.TrimSpace(r.PathValue("id"))
 	if err := h.service.Delete(r.Context(), userID, id); err != nil {
 		response.Error(w, http.StatusNotFound, response.ErrCodeNotFound, "Interview not found", nil)
 		return
 	}
 
 	response.NoContent(w)
+}
+
+// parseFlexibleTime attempts to parse timestamps across common formats.
+func parseFlexibleTime(str string) (time.Time, error) {
+	str = strings.TrimSpace(str)
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05.999999999Z07:00",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+	}
+
+	for _, format := range formats {
+		if t, err := time.Parse(format, str); err == nil {
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unable to parse date string: %s", str)
 }

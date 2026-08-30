@@ -11,6 +11,7 @@ import (
 
 	"job-tracker/pkg/application"
 	"job-tracker/pkg/auth"
+	"job-tracker/pkg/interview"
 	"job-tracker/pkg/middleware"
 	"job-tracker/pkg/response"
 	"job-tracker/pkg/statistics"
@@ -22,6 +23,7 @@ type inMemoryIntegrationDB struct {
 	usersByEmail map[string]*user.User
 	apps         map[string]*application.Application
 	events       map[string][]application.Event
+	interviews   map[string]*interview.Interview
 }
 
 func newInMemoryIntegrationDB() *inMemoryIntegrationDB {
@@ -30,6 +32,7 @@ func newInMemoryIntegrationDB() *inMemoryIntegrationDB {
 		usersByEmail: make(map[string]*user.User),
 		apps:         make(map[string]*application.Application),
 		events:       make(map[string][]application.Event),
+		interviews:   make(map[string]*interview.Interview),
 	}
 }
 
@@ -109,17 +112,68 @@ func (a *appRepoAdapter) ListEvents(ctx context.Context, userID, applicationID s
 	return a.db.events[applicationID], nil
 }
 
+// Interview repo methods
+type interviewRepoAdapter struct {
+	db *inMemoryIntegrationDB
+}
+
+func (ir *interviewRepoAdapter) Create(ctx context.Context, userID string, i *interview.Interview) error {
+	if app, ok := ir.db.apps[i.ApplicationID]; !ok || app.UserID != userID {
+		return interview.ErrApplicationNotFound
+	}
+	i.ID = "interview-400"
+	i.CreatedAt = time.Now()
+	i.UpdatedAt = time.Now()
+	ir.db.interviews[i.ID] = i
+	return nil
+}
+
+func (ir *interviewRepoAdapter) GetByID(ctx context.Context, userID, id string) (*interview.Interview, error) {
+	if i, ok := ir.db.interviews[id]; ok {
+		if app, appOk := ir.db.apps[i.ApplicationID]; appOk && app.UserID == userID {
+			return i, nil
+		}
+	}
+	return nil, nil
+}
+
+func (ir *interviewRepoAdapter) ListByApplicationID(ctx context.Context, userID, applicationID string) ([]interview.Interview, error) {
+	var list []interview.Interview
+	for _, i := range ir.db.interviews {
+		if i.ApplicationID == applicationID {
+			if app, ok := ir.db.apps[i.ApplicationID]; ok && app.UserID == userID {
+				list = append(list, *i)
+			}
+		}
+	}
+	return list, nil
+}
+
+func (ir *interviewRepoAdapter) Update(ctx context.Context, userID, id string, i *interview.Interview) error {
+	i.UpdatedAt = time.Now()
+	ir.db.interviews[id] = i
+	return nil
+}
+
+func (ir *interviewRepoAdapter) Delete(ctx context.Context, userID, id string) error {
+	delete(ir.db.interviews, id)
+	return nil
+}
+
 func TestFullAPIWorkflow(t *testing.T) {
 	db := newInMemoryIntegrationDB()
 	appRepo := &appRepoAdapter{db: db}
+	interviewRepo := &interviewRepoAdapter{db: db}
 	sessionStore := auth.NewMemorySessionStore(1 * time.Hour)
 
 	authService := auth.NewService(db, sessionStore)
 	appService := application.NewService(appRepo)
+	interviewService := interview.NewService(interviewRepo)
 	statsService := statistics.NewService(appRepo)
 
 	authHandler := auth.NewHandler(authService)
 	appHandler := application.NewHandler(appService)
+	interviewHandler := interview.NewHandler(interviewService)
 	statsHandler := statistics.NewHandler(statsService)
 
 	mux := http.NewServeMux()
@@ -136,6 +190,8 @@ func TestFullAPIWorkflow(t *testing.T) {
 
 	mux.Handle("POST /api/v1/applications", wrapAuth(appHandler.Create))
 	mux.Handle("GET /api/v1/applications", wrapAuth(appHandler.List))
+	mux.Handle("POST /api/v1/applications/{id}/interviews", wrapAuth(interviewHandler.Create))
+	mux.Handle("GET /api/v1/applications/{id}/interviews", wrapAuth(interviewHandler.ListByApplication))
 	mux.Handle("GET /api/v1/statistics", wrapAuth(statsHandler.Get))
 
 	// 1. Register
@@ -165,17 +221,28 @@ func TestFullAPIWorkflow(t *testing.T) {
 		t.Fatalf("expected status 201 Created on create app, got %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	// 3. List Applications
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/applications", nil)
+	// 3. Create Interview on Application "app-200"
+	interviewBody := bytes.NewBufferString(`{"type":"TECHNICAL","scheduled_at":"2026-09-15 14:00","duration_minutes":45,"notes":"Coding round"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/applications/app-200/interviews", interviewBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status 201 Created on create interview, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// 4. List Interviews for Application
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/applications/app-200/interviews", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr = httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
-		t.Fatalf("expected status 200 OK on list apps, got %d", rr.Code)
+		t.Fatalf("expected status 200 OK on list interviews, got %d", rr.Code)
 	}
 
-	// 4. Statistics
+	// 5. Statistics
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/statistics", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr = httptest.NewRecorder()
