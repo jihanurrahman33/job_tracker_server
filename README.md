@@ -6,6 +6,13 @@ Built completely using standard library Go (`net/http`, `database/sql`, `encodin
 
 ---
 
+## 🌐 Live Deployments
+
+- **Render**: [https://job-tracker-server-9drb.onrender.com/](https://job-tracker-server-9drb.onrender.com/)
+- **Vercel**: [https://job-tracker-server-nu.vercel.app/](https://job-tracker-server-nu.vercel.app/)
+
+---
+
 ## 🏗️ Architecture & Project Structure
 
 ```text
@@ -17,6 +24,7 @@ job-tracker/
 ├── internal/
 │   ├── application/                    # Application domain (CRUD, events, filtering)
 │   │   ├── handler.go
+│   │   ├── handler_test.go
 │   │   ├── model.go
 │   │   ├── postgres.go
 │   │   ├── repository.go
@@ -25,15 +33,18 @@ job-tracker/
 │   │   └── validation_test.go
 │   │
 │   ├── auth/                           # Authentication & session management
+│   │   ├── auth_test.go
 │   │   ├── handler.go
+│   │   ├── handler_test.go
 │   │   ├── service.go
 │   │   └── session.go
 │   │
 │   ├── config/                         # Environment & application config
 │   │   └── config.go
 │   │
-│   ├── database/                       # Database connection pooling & ping
-│   │   └── database.go
+│   ├── database/                       # Database connection pooling & migrations
+│   │   ├── database.go
+│   │   └── migrate.go
 │   │
 │   ├── interview/                      # Interview scheduling domain
 │   │   ├── handler.go
@@ -53,7 +64,8 @@ job-tracker/
 │   │   ├── model.go
 │   │   ├── postgres.go
 │   │   ├── repository.go
-│   │   └── service.go
+│   │   ├── service.go
+│   │   └── worker.go                   # Background reminder worker
 │   │
 │   ├── response/                       # JSON and error serialization helpers
 │   │   ├── errors.go
@@ -61,7 +73,8 @@ job-tracker/
 │   │
 │   ├── statistics/                     # Application metrics and rate calculations
 │   │   ├── handler.go
-│   │   └── service.go
+│   │   ├── service.go
+│   │   └── statistics_test.go
 │   │
 │   └── user/                           # User domain
 │       ├── handler.go
@@ -75,9 +88,11 @@ job-tracker/
 │   ├── 002_create_applications.sql
 │   ├── 003_create_application_events.sql
 │   ├── 004_create_interviews.sql
-│   └── 005_create_reminders.sql
+│   ├── 005_create_reminders.sql
+│   └── 006_create_sessions.sql
 │
 ├── tests/                              # Integration and e2e tests
+│   ├── api_integration_test.go
 │   └── health_test.go
 │
 ├── .env.example
@@ -113,6 +128,7 @@ psql "$DATABASE_URL" -f migrations/002_create_applications.sql
 psql "$DATABASE_URL" -f migrations/003_create_application_events.sql
 psql "$DATABASE_URL" -f migrations/004_create_interviews.sql
 psql "$DATABASE_URL" -f migrations/005_create_reminders.sql
+psql "$DATABASE_URL" -f migrations/006_create_sessions.sql
 
 # Start the server
 go run ./cmd/server
@@ -125,20 +141,23 @@ go run ./cmd/server
 Run all unit and integration tests:
 
 ```bash
-go test -v ./...
+go test -v -race ./...
 ```
 
 ---
 
 ## 📖 API Endpoints Reference
 
-### Health & Readiness
+### Welcome & Health Checks
+- `GET /` - API welcome information and status
 - `GET /health` - Liveness health check
+- `GET /healthz` - Liveness health check (Kubernetes / Cloud provider standard)
 - `GET /ready` - Readiness check with database verification
 
 ### Authentication & Profile
 - `POST /api/v1/auth/register` - Create a new user account
 - `POST /api/v1/auth/login` - Authenticate and obtain bearer token
+- `POST /api/v1/auth/logout` - Invalidate current session token
 - `GET /api/v1/me` - Get current authenticated user profile
 
 ### Applications
@@ -164,4 +183,3 @@ go test -v ./...
 
 ### Statistics
 - `GET /api/v1/statistics` - Get aggregated metrics (response rate, interview rate, offer rate)
-

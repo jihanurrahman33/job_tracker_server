@@ -9,6 +9,24 @@ import (
 	"strings"
 )
 
+// FindMigrationsDir locates the migrations directory across standard relative locations.
+func FindMigrationsDir() string {
+	candidates := []string{
+		"migrations",
+		"./migrations",
+		"../migrations",
+		"../../migrations",
+		"/app/migrations",
+	}
+
+	for _, dir := range candidates {
+		if stat, err := os.Stat(dir); err == nil && stat.IsDir() {
+			return dir
+		}
+	}
+	return "migrations"
+}
+
 // RunMigrations executes all .sql files in the migrations directory in alphanumeric order.
 func (db *DB) RunMigrations(ctx context.Context, migrationsDir string) error {
 	entries, err := os.ReadDir(migrationsDir)

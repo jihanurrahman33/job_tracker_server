@@ -1,36 +1,149 @@
 package config
 
 import (
+	"bufio"
+	"fmt"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
 // Config holds the application configuration settings.
 type Config struct {
-	Port          string
-	DatabaseURL   string
-	SessionSecret string
-	Environment   string
-	ReadTimeout   time.Duration
-	WriteTimeout  time.Duration
-	IdleTimeout   time.Duration
+	Port            string
+	DatabaseURL     string
+	SessionSecret   string
+	Environment     string
+	IsRender        bool
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	IdleTimeout     time.Duration
 }
 
-// Load loads configuration from environment variables with sensible defaults.
+// Load loads configuration from environment variables, automatically loading .env if available.
 func Load() *Config {
+	// Auto-load .env file if present
+	loadDotEnv(".env")
+
 	port := getEnv("PORT", "8080")
-	dbURL := getEnv("DATABASE_URL", "postgres://jobtracker_user:jobtracker_pass@localhost:5432/jobtracker_db?sslmode=disable")
+	dbURL := resolveDatabaseURL()
 	sessionSecret := getEnv("SESSION_SECRET", "default-dev-secret-replace-in-production-32b")
+
+	isRender := os.Getenv("RENDER") == "true" || os.Getenv("RENDER_SERVICE_ID") != ""
 	env := getEnv("ENVIRONMENT", "development")
+	if isRender && env == "development" {
+		env = "production"
+	}
 
 	return &Config{
-		Port:          port,
-		DatabaseURL:   dbURL,
-		SessionSecret: sessionSecret,
-		Environment:   env,
-		ReadTimeout:   10 * time.Second,
-		WriteTimeout:  15 * time.Second,
-		IdleTimeout:   60 * time.Second,
+		Port:            port,
+		DatabaseURL:     dbURL,
+		SessionSecret:   sessionSecret,
+		Environment:     env,
+		IsRender:        isRender,
+		MaxOpenConns:    15,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: 15 * time.Minute,
+		ConnMaxIdleTime: 5 * time.Minute,
+		ReadTimeout:     15 * time.Second,
+		WriteTimeout:    20 * time.Second,
+		IdleTimeout:     60 * time.Second,
+	}
+}
+
+// resolveDatabaseURL resolves the Postgres connection string from various cloud/Render formats.
+func resolveDatabaseURL() string {
+	// 1. Direct environment variables commonly used on Render & cloud hosts
+	directKeys := []string{
+		"DATABASE_URL",
+		"INTERNAL_DATABASE_URL", // Render internal PostgreSQL URL
+		"RENDER_DATABASE_URL",
+		"POSTGRES_URL",
+		"POSTGRESQL_URL",
+	}
+
+	for _, key := range directKeys {
+		if val := strings.TrimSpace(os.Getenv(key)); val != "" {
+			return normalizeDatabaseURL(val)
+		}
+	}
+
+	// 2. Discrete database environment parameters
+	dbHost := os.Getenv("DB_HOST")
+	if dbHost != "" {
+		dbPort := getEnv("DB_PORT", "5432")
+		dbUser := getEnv("DB_USER", "postgres")
+		dbPass := os.Getenv("DB_PASSWORD")
+		dbName := getEnv("DB_NAME", "jobtracker_db")
+		sslMode := getEnv("DB_SSLMODE", "require")
+
+		userPass := url.User(dbUser)
+		if dbPass != "" {
+			userPass = url.UserPassword(dbUser, dbPass)
+		}
+
+		u := &url.URL{
+			Scheme: "postgres",
+			User:   userPass,
+			Host:   fmt.Sprintf("%s:%s", dbHost, dbPort),
+			Path:   "/" + dbName,
+		}
+		q := u.Query()
+		q.Set("sslmode", sslMode)
+		u.RawQuery = q.Encode()
+
+		return u.String()
+	}
+
+	// 3. Fallback default for local docker-compose development
+	return "postgres://jobtracker_user:jobtracker_pass@localhost:5432/jobtracker_db?sslmode=disable"
+}
+
+// normalizeDatabaseURL handles url compatibility adjustments if needed
+func normalizeDatabaseURL(dbURL string) string {
+	// If it starts with postgresql://, lib/pq handles it, but postgres:// is standard
+	return dbURL
+}
+
+// loadDotEnv reads key-value pairs from a .env file if it exists without external libraries.
+func loadDotEnv(filenames ...string) {
+	for _, filename := range filenames {
+		file, err := os.Open(filename)
+		if err != nil {
+			continue
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+
+			// Strip quotes if present
+			if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+				val = val[1 : len(val)-1]
+			}
+
+			// Only set if not already set in environment
+			if _, exists := os.LookupEnv(key); !exists {
+				_ = os.Setenv(key, val)
+			}
+		}
 	}
 }
 

@@ -44,7 +44,14 @@ func main() {
 	var db *database.DB
 	var sessionStore auth.SessionStore = auth.NewMemorySessionStore(24 * time.Hour)
 
-	connectedDB, err := database.Connect("postgres", cfg.DatabaseURL)
+	poolConfig := database.PoolConfig{
+		MaxOpenConns:    cfg.MaxOpenConns,
+		MaxIdleConns:    cfg.MaxIdleConns,
+		ConnMaxLifetime: cfg.ConnMaxLifetime,
+		ConnMaxIdleTime: cfg.ConnMaxIdleTime,
+	}
+
+	connectedDB, err := database.ConnectWithRetry("postgres", cfg.DatabaseURL, poolConfig, 3, 2*time.Second)
 	if err != nil {
 		logger.Warn("could not connect to PostgreSQL database on startup (will retry on requests)", slog.String("error", err.Error()))
 	} else {
@@ -52,13 +59,14 @@ func main() {
 		defer db.Close()
 		logger.Info("connected to PostgreSQL successfully")
 
-		// Run migrations if directory exists
-		if _, err := os.Stat("migrations"); err == nil {
-			migCtx, migCancel := context.WithTimeout(context.Background(), 15*time.Second)
-			if err := db.RunMigrations(migCtx, "migrations"); err != nil {
+		// Run migrations
+		migDir := database.FindMigrationsDir()
+		if _, err := os.Stat(migDir); err == nil {
+			migCtx, migCancel := context.WithTimeout(context.Background(), 20*time.Second)
+			if err := db.RunMigrations(migCtx, migDir); err != nil {
 				logger.Error("failed to apply migrations", slog.String("error", err.Error()))
 			} else {
-				logger.Info("database migrations applied successfully")
+				logger.Info("database migrations applied successfully", slog.String("directory", migDir))
 			}
 			migCancel()
 		}
@@ -97,10 +105,26 @@ func main() {
 	// Router setup
 	mux := http.NewServeMux()
 
-	// Public health check routes
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	// Root welcome route
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		response.JSON(w, http.StatusOK, map[string]any{
+			"name":    "Job Application Tracker API",
+			"version": "1.0",
+			"status":  "healthy",
+			"endpoints": map[string]string{
+				"health":  "/health",
+				"healthz": "/healthz",
+				"ready":   "/ready",
+			},
+		})
 	})
+
+	// Public health check routes
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		response.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+	mux.HandleFunc("GET /health", healthHandler)
+	mux.HandleFunc("GET /healthz", healthHandler)
 
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, r *http.Request) {
 		if db == nil {
