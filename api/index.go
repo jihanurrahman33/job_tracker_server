@@ -6,8 +6,8 @@ import (
 	"os"
 	"sync"
 
-	"job-tracker/internal/app"
-	"job-tracker/internal/config"
+	"job-tracker/pkg/app"
+	"job-tracker/pkg/config"
 )
 
 var (

@@ -9,16 +9,16 @@ import (
 
 	_ "github.com/lib/pq"
 
-	"job-tracker/internal/application"
-	"job-tracker/internal/auth"
-	"job-tracker/internal/config"
-	"job-tracker/internal/database"
-	"job-tracker/internal/interview"
-	"job-tracker/internal/middleware"
-	"job-tracker/internal/reminder"
-	"job-tracker/internal/response"
-	"job-tracker/internal/statistics"
-	"job-tracker/internal/user"
+	"job-tracker/pkg/application"
+	"job-tracker/pkg/auth"
+	"job-tracker/pkg/config"
+	"job-tracker/pkg/database"
+	"job-tracker/pkg/interview"
+	"job-tracker/pkg/middleware"
+	"job-tracker/pkg/reminder"
+	"job-tracker/pkg/response"
+	"job-tracker/pkg/statistics"
+	"job-tracker/pkg/user"
 )
 
 // App encapsulates dependencies and the HTTP handler.

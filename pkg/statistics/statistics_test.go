@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"job-tracker/internal/application"
-	"job-tracker/internal/statistics"
+	"job-tracker/pkg/application"
+	"job-tracker/pkg/statistics"
 )
 
 type mockAppRepo struct {

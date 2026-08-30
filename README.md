@@ -24,7 +24,7 @@ job-tracker/
 │   └── server/
 │       └── main.go                     # Standalone daemon entrypoint (Render, Docker, Local)
 │
-├── internal/
+├── pkg/
 │   ├── app/                            # Shared application builder & router wiring
 │   │   └── app.go
 │   │

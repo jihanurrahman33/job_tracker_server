@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"job-tracker/internal/response"
+	"job-tracker/pkg/response"
 )
 
 // Handler processes incoming HTTP requests for authentication.

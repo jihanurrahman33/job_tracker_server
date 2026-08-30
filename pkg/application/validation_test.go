@@ -3,7 +3,7 @@ package application_test
 import (
 	"testing"
 
-	"job-tracker/internal/application"
+	"job-tracker/pkg/application"
 )
 
 func TestValidateStatus(t *testing.T) {

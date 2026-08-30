@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"job-tracker/internal/auth"
-	"job-tracker/internal/user"
+	"job-tracker/pkg/auth"
+	"job-tracker/pkg/user"
 )
 
 type mockUserRepo struct {

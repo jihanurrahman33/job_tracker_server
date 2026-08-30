@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"job-tracker/internal/database"
+	"job-tracker/pkg/database"
 )
 
 var ErrInvalidSession = errors.New("invalid or expired session")

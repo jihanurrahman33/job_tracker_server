@@ -3,8 +3,8 @@ package user
 import (
 	"net/http"
 
-	"job-tracker/internal/middleware"
-	"job-tracker/internal/response"
+	"job-tracker/pkg/middleware"
+	"job-tracker/pkg/response"
 )
 
 // Handler handles HTTP requests for user profiles.

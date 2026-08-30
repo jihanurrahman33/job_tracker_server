@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"job-tracker/internal/auth"
+	"job-tracker/pkg/auth"
 )
 
 func TestAuthHandler(t *testing.T) {

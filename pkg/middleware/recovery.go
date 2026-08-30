@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"runtime/debug"
 
-	"job-tracker/internal/response"
+	"job-tracker/pkg/response"
 )
 
 // Recovery catches panics, logs the stack trace, and sends a 500 error response.

@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"job-tracker/internal/response"
+	"job-tracker/pkg/response"
 )
 
 func TestHealthEndpoints(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"math"
 
-	"job-tracker/internal/application"
+	"job-tracker/pkg/application"
 )
 
 // Statistics holds aggregated metrics for a user's job applications.

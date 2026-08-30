@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"job-tracker/internal/response"
+	"job-tracker/pkg/response"
 )
 
 const UserIDKey contextKey = "user_id"

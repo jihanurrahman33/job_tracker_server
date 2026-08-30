@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"job-tracker/internal/middleware"
-	"job-tracker/internal/response"
+	"job-tracker/pkg/middleware"
+	"job-tracker/pkg/response"
 )
 
 // Handler serves HTTP endpoints for interview scheduling.

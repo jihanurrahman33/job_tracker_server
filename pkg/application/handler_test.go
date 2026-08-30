@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"job-tracker/internal/application"
-	"job-tracker/internal/middleware"
+	"job-tracker/pkg/application"
+	"job-tracker/pkg/middleware"
 )
 
 type memoryAppRepo struct {

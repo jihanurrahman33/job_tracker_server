@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"job-tracker/internal/database"
+	"job-tracker/pkg/database"
 )
 
 var (

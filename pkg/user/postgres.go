@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"job-tracker/internal/database"
+	"job-tracker/pkg/database"
 )
 
 type postgresRepository struct {

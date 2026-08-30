@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"job-tracker/internal/application"
-	"job-tracker/internal/auth"
-	"job-tracker/internal/middleware"
-	"job-tracker/internal/response"
-	"job-tracker/internal/statistics"
-	"job-tracker/internal/user"
+	"job-tracker/pkg/application"
+	"job-tracker/pkg/auth"
+	"job-tracker/pkg/middleware"
+	"job-tracker/pkg/response"
+	"job-tracker/pkg/statistics"
+	"job-tracker/pkg/user"
 )
 
 type inMemoryIntegrationDB struct {

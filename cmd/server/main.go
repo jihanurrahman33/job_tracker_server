@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"job-tracker/internal/app"
-	"job-tracker/internal/config"
+	"job-tracker/pkg/app"
+	"job-tracker/pkg/config"
 )
 
 func main() {
