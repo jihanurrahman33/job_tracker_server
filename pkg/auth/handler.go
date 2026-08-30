@@ -123,23 +123,39 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ValidateTokenOrSession(r *http.Request) (string, error) {
 	token := ExtractBearerToken(r)
 	if token == "" {
-		return "", errors.New("missing or invalid Authorization header")
+		return "", errors.New("missing Authorization header or token")
 	}
 
 	return h.service.ValidateToken(r.Context(), token)
 }
 
-// ExtractBearerToken extracts the bearer token from the Authorization header.
+// ExtractBearerToken flexibly extracts bearer token from Authorization header or fallbacks.
 func ExtractBearerToken(r *http.Request) string {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return ""
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		var token string
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			token = strings.TrimSpace(parts[1])
+		} else if len(parts) == 1 && !strings.EqualFold(parts[0], "Bearer") {
+			token = strings.TrimSpace(parts[0])
+		}
+
+		token = strings.Trim(token, "\"'")
+		if token != "" {
+			return token
+		}
 	}
 
-	parts := strings.SplitN(authHeader, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		return ""
+	// Fallback header: X-Auth-Token
+	if custom := strings.TrimSpace(r.Header.Get("X-Auth-Token")); custom != "" {
+		return strings.Trim(custom, "\"'")
 	}
 
-	return strings.TrimSpace(parts[1])
+	// Fallback query parameter: ?token=
+	if qToken := strings.TrimSpace(r.URL.Query().Get("token")); qToken != "" {
+		return strings.Trim(qToken, "\"'")
+	}
+
+	return ""
 }

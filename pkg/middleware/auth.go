@@ -20,7 +20,11 @@ func Authenticate(auth Authenticator) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			userID, err := auth.ValidateTokenOrSession(r)
 			if err != nil || userID == "" {
-				response.Error(w, http.StatusUnauthorized, response.ErrCodeUnauthorized, "Authentication required", nil)
+				msg := "Authentication required"
+				if err != nil && err.Error() != "" {
+					msg = err.Error()
+				}
+				response.Error(w, http.StatusUnauthorized, response.ErrCodeUnauthorized, msg, nil)
 				return
 			}
 
