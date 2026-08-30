@@ -1,0 +1,39 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: job_tracker_api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgres://jobtracker_user:jobtracker_pass@postgres:5432/jobtracker_db?sslmode=disable
+      - SESSION_SECRET=local-development-session-secret-key-32bytes
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: job_tracker_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=jobtracker_user
+      - POSTGRES_PASSWORD=jobtracker_pass
+      - POSTGRES_DB=jobtracker_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobtracker_user -d jobtracker_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
