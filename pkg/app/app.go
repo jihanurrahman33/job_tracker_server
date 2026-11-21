@@ -18,6 +18,7 @@ import (
 	"job-tracker/pkg/middleware"
 	"job-tracker/pkg/reminder"
 	"job-tracker/pkg/response"
+	"job-tracker/pkg/review"
 	"job-tracker/pkg/statistics"
 	"job-tracker/pkg/user"
 )
@@ -80,6 +81,7 @@ func BuildApp(cfg *config.Config, logger *slog.Logger) *App {
 	appRepo := application.NewPostgresRepository(db)
 	interviewRepo := interview.NewPostgresRepository(db)
 	reminderRepo := reminder.NewPostgresRepository(db)
+	reviewRepo := review.NewPostgresRepository(db)
 
 	// Services
 	authService := auth.NewService(userRepo, sessionStore)
@@ -108,6 +110,7 @@ func BuildApp(cfg *config.Config, logger *slog.Logger) *App {
 	interviewHandler := interview.NewHandler(interviewService)
 	reminderHandler := reminder.NewHandler(reminderService)
 	statsHandler := statistics.NewHandler(statsService)
+	reviewHandler := review.NewHandler(reviewRepo)
 
 	// Router setup
 	mux := http.NewServeMux()
@@ -153,6 +156,9 @@ func BuildApp(cfg *config.Config, logger *slog.Logger) *App {
 	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 
+	// Public reviews (aggregate rating + latest written reviews)
+	mux.HandleFunc("GET /api/v1/reviews", reviewHandler.List)
+
 	// Protected routes helper
 	authMiddleware := middleware.Authenticate(authHandler)
 
@@ -186,6 +192,11 @@ func BuildApp(cfg *config.Config, logger *slog.Logger) *App {
 
 	// Statistics routes
 	mux.Handle("GET /api/v1/statistics", wrapAuth(statsHandler.Get))
+
+	// The signed-in user's own review
+	mux.Handle("GET /api/v1/reviews/me", wrapAuth(reviewHandler.GetMine))
+	mux.Handle("PUT /api/v1/reviews/me", wrapAuth(reviewHandler.SaveMine))
+	mux.Handle("DELETE /api/v1/reviews/me", wrapAuth(reviewHandler.DeleteMine))
 
 	// CORS options
 	corsOpts := middleware.DefaultCORSOptions()
