@@ -7,6 +7,9 @@ import (
 
 var (
 	ErrReminderNotFound = errors.New("reminder not found")
+	// ErrInvalidApplication means the reminder names an application that does
+	// not exist or belongs to someone else.
+	ErrInvalidApplication = errors.New("application not found")
 )
 
 // Service provides business logic operations for reminders.

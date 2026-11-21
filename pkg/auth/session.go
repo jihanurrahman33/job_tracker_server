@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -48,7 +49,9 @@ func (p *PostgresSessionStore) CreateSession(ctx context.Context, userID string)
 		INSERT INTO sessions (id, user_id, expires_at, created_at)
 		VALUES ($1, $2, $3, NOW())`
 
-	_, err := p.db.ExecContext(ctx, query, token, userID, expiresAt)
+	// Only a hash of the token is stored, so a copy of the database cannot be
+	// used to sign in as anyone.
+	_, err := p.db.ExecContext(ctx, query, hashToken(token), userID, expiresAt)
 	if err != nil {
 		return "", fmt.Errorf("failed to create session in database: %w", err)
 	}
@@ -56,16 +59,23 @@ func (p *PostgresSessionStore) CreateSession(ctx context.Context, userID string)
 	return token, nil
 }
 
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
 func (p *PostgresSessionStore) GetUserIDBySession(ctx context.Context, sessionID string) (string, error) {
+	// A disabled account's sessions stop working immediately.
 	query := `
-		SELECT user_id, expires_at
-		FROM sessions
-		WHERE id = $1`
+		SELECT s.user_id, s.expires_at
+		FROM sessions s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.id = $1 AND u.disabled = FALSE`
 
 	var userID string
 	var expiresAt time.Time
 
-	err := p.db.QueryRowContext(ctx, query, sessionID).Scan(&userID, &expiresAt)
+	err := p.db.QueryRowContext(ctx, query, hashToken(sessionID)).Scan(&userID, &expiresAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", ErrInvalidSession
@@ -84,7 +94,7 @@ func (p *PostgresSessionStore) GetUserIDBySession(ctx context.Context, sessionID
 
 func (p *PostgresSessionStore) DeleteSession(ctx context.Context, sessionID string) error {
 	query := `DELETE FROM sessions WHERE id = $1`
-	_, err := p.db.ExecContext(ctx, query, sessionID)
+	_, err := p.db.ExecContext(ctx, query, hashToken(sessionID))
 	return err
 }
 

@@ -14,8 +14,10 @@ const RequestIDKey contextKey = "request_id"
 // RequestID generates a unique request ID for tracing if not already supplied in the header.
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Accept a caller-supplied ID only if it is short and plain, since it is
+		// echoed in a response header and written to logs.
 		reqID := r.Header.Get("X-Request-ID")
-		if reqID == "" {
+		if !safeRequestID.MatchString(reqID) {
 			reqID = generateRandomID()
 		}
 

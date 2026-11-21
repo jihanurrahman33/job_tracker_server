@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"job-tracker/pkg/middleware"
 	"job-tracker/pkg/response"
 )
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // Handler serves HTTP endpoints for reminders.
 type Handler struct {
@@ -67,6 +70,19 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Title) > 255 {
+		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Validation failed", map[string]string{
+			"title": "title must be 255 characters or fewer",
+		})
+		return
+	}
+	if req.ApplicationID != nil && !uuidPattern.MatchString(*req.ApplicationID) {
+		response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Validation failed", map[string]string{
+			"application_id": "application_id must be a valid id",
+		})
+		return
+	}
+
 	rem := &Reminder{
 		UserID:        userID,
 		ApplicationID: req.ApplicationID,
@@ -77,7 +93,15 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.Create(r.Context(), rem); err != nil {
-		response.Error(w, http.StatusInternalServerError, response.ErrCodeInternalError, fmt.Sprintf("Failed to create reminder: %v", err), nil)
+		if errors.Is(err, ErrInvalidApplication) {
+			response.Error(w, http.StatusBadRequest, response.ErrCodeValidationError, "Validation failed", map[string]string{
+				"application_id": "application_id does not match one of your applications",
+			})
+			return
+		}
+		// Never put the underlying error in the response: it can contain
+		// database text.
+		response.Error(w, http.StatusInternalServerError, response.ErrCodeInternalError, "Failed to create reminder", nil)
 		return
 	}
 

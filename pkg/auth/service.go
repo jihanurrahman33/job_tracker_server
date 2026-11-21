@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"job-tracker/pkg/user"
 )
@@ -17,7 +18,26 @@ import (
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrUserAlreadyExists  = errors.New("email is already registered")
+	ErrAccountDisabled    = errors.New("account is disabled")
 )
+
+// dummyHash is checked when a sign-in names an unknown email, so that a missing
+// account takes as long to reject as a wrong password and the response time
+// does not reveal which emails are registered.
+var (
+	dummyHash     string
+	dummyHashOnce sync.Once
+)
+
+func burnPasswordCheck(password string) {
+	dummyHashOnce.Do(func() { dummyHash, _ = HashPassword("not-a-real-password") })
+	CheckPassword(password, dummyHash)
+}
+
+// loginToucher is implemented by repositories that can record the last sign-in.
+type loginToucher interface {
+	TouchLogin(ctx context.Context, userID string) error
+}
 
 const (
 	pbkdf2Iterations = 100000
@@ -41,6 +61,7 @@ func NewService(userRepo user.Repository, sessions SessionStore) *Service {
 
 // Register creates a new user account and returns a session token.
 func (s *Service) Register(ctx context.Context, name, email, password string) (*user.User, string, error) {
+	email = NormalizeEmail(email)
 	existing, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		return nil, "", err
@@ -69,16 +90,22 @@ func (s *Service) Register(ctx context.Context, name, email, password string) (*
 		return nil, "", fmt.Errorf("failed to create session: %w", err)
 	}
 
+	// Registering signs the person in, so it counts as their first sign-in.
+	if t, ok := s.userRepo.(loginToucher); ok {
+		_ = t.TouchLogin(ctx, newUser.ID)
+	}
+
 	return newUser, token, nil
 }
 
 // Login authenticates a user and returns a session token.
 func (s *Service) Login(ctx context.Context, email, password string) (*user.User, string, error) {
-	u, err := s.userRepo.GetByEmail(ctx, email)
+	u, err := s.userRepo.GetByEmail(ctx, NormalizeEmail(email))
 	if err != nil {
 		return nil, "", err
 	}
 	if u == nil {
+		burnPasswordCheck(password)
 		return nil, "", ErrInvalidCredentials
 	}
 
@@ -86,12 +113,28 @@ func (s *Service) Login(ctx context.Context, email, password string) (*user.User
 		return nil, "", ErrInvalidCredentials
 	}
 
+	// Only tell the person the account is disabled once they have proved they
+	// own it, so the message cannot be used to probe for accounts.
+	if u.Disabled {
+		return nil, "", ErrAccountDisabled
+	}
+
 	token, err := s.sessions.CreateSession(ctx, u.ID)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create session: %w", err)
 	}
 
+	if t, ok := s.userRepo.(loginToucher); ok {
+		_ = t.TouchLogin(ctx, u.ID)
+	}
+
 	return u, token, nil
+}
+
+// NormalizeEmail lowercases and trims an address so "A@x.com" and "a@x.com"
+// are one account.
+func NormalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // Logout deletes the active session token.

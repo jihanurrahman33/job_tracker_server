@@ -9,6 +9,8 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"job-tracker/pkg/activity"
+	"job-tracker/pkg/admin"
 	"job-tracker/pkg/application"
 	"job-tracker/pkg/auth"
 	"job-tracker/pkg/config"
@@ -82,6 +84,8 @@ func BuildApp(cfg *config.Config, logger *slog.Logger) *App {
 	interviewRepo := interview.NewPostgresRepository(db)
 	reminderRepo := reminder.NewPostgresRepository(db)
 	reviewRepo := review.NewPostgresRepository(db)
+	adminRepo := admin.NewRepository(db)
+	recorder := activity.NewRecorder(db, logger)
 
 	// Services
 	authService := auth.NewService(userRepo, sessionStore)
@@ -105,6 +109,8 @@ func BuildApp(cfg *config.Config, logger *slog.Logger) *App {
 
 	// Handlers
 	authHandler := auth.NewHandler(authService)
+	authHandler.SetLimiter(recorder)
+	adminHandler := admin.NewHandler(adminRepo)
 	userHandler := user.NewHandler(userService)
 	appHandler := application.NewHandler(appService)
 	interviewHandler := interview.NewHandler(interviewService)
@@ -166,6 +172,19 @@ func BuildApp(cfg *config.Config, logger *slog.Logger) *App {
 		return authMiddleware(handlerFunc)
 	}
 
+	// Admin routes: signed in AND an active admin, checked against the
+	// database on every request.
+	adminOnly := middleware.RequireAdmin(adminRepo.IsAdmin)
+	wrapAdmin := func(handlerFunc http.HandlerFunc) http.Handler {
+		return authMiddleware(adminOnly(handlerFunc))
+	}
+	mux.Handle("GET /api/v1/admin/overview", wrapAdmin(adminHandler.Overview))
+	mux.Handle("GET /api/v1/admin/users", wrapAdmin(adminHandler.Users))
+	mux.Handle("PATCH /api/v1/admin/users/{id}", wrapAdmin(adminHandler.UpdateUser))
+	mux.Handle("GET /api/v1/admin/activity", wrapAdmin(adminHandler.Activity))
+	mux.Handle("GET /api/v1/admin/reviews", wrapAdmin(adminHandler.Reviews))
+	mux.Handle("DELETE /api/v1/admin/reviews/{id}", wrapAdmin(adminHandler.DeleteReview))
+
 	// User / Profile route
 	mux.Handle("GET /api/v1/me", wrapAuth(userHandler.Me))
 
@@ -207,11 +226,16 @@ func BuildApp(cfg *config.Config, logger *slog.Logger) *App {
 	// Rate limiter (token-bucket)
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
 
-	// Global middleware stack: CORS -> RequestID -> Logging -> RateLimit -> Recovery -> mux
+	// Global middleware stack, outermost first:
+	// CORS -> RequestID -> SecurityHeaders -> MaxBody -> Logging -> Activity -> RateLimit -> Recovery -> mux
+	// Activity sits outside RateLimit so blocked requests are recorded too.
 	var handler http.Handler = mux
 	handler = middleware.Recovery(logger)(handler)
 	handler = rateLimiter.Limit()(handler)
+	handler = activity.Middleware(recorder)(handler)
 	handler = middleware.Logging(logger)(handler)
+	handler = middleware.MaxBodyBytes(1 << 20)(handler)
+	handler = middleware.SecurityHeaders(handler)
 	handler = middleware.RequestID(handler)
 	handler = middleware.CORS(corsOpts)(handler)
 

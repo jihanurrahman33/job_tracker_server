@@ -19,6 +19,19 @@ func NewPostgresRepository(db *database.DB) Repository {
 }
 
 func (r *postgresRepository) Create(ctx context.Context, rem *Reminder) error {
+	// A reminder may only point at the creator's own application.
+	if rem.ApplicationID != nil {
+		var owned bool
+		if err := r.db.QueryRowContext(ctx,
+			`SELECT EXISTS (SELECT 1 FROM applications WHERE id = $1 AND user_id = $2)`,
+			*rem.ApplicationID, rem.UserID).Scan(&owned); err != nil {
+			return fmt.Errorf("failed to check application: %w", err)
+		}
+		if !owned {
+			return ErrInvalidApplication
+		}
+	}
+
 	query := `
 		INSERT INTO reminders (
 			id, user_id, application_id, title, description, remind_at, completed, created_at

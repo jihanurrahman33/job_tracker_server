@@ -2,9 +2,7 @@ package middleware
 
 import (
 	"fmt"
-	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -108,28 +106,8 @@ func (rl *RateLimiter) Limit() func(http.Handler) http.Handler {
 	}
 }
 
-// getClientIP resolves the actual client IP, respecting common cloud proxy headers.
+// getClientIP resolves the client address using the trusted-proxy rules in
+// clientip.go. Forwarding headers a client can set freely are not believed.
 func getClientIP(r *http.Request) string {
-	// Check standard cloud headers
-	if cf := r.Header.Get("CF-Connecting-IP"); cf != "" {
-		return strings.TrimSpace(cf)
-	}
-	if xReal := r.Header.Get("X-Real-IP"); xReal != "" {
-		return strings.TrimSpace(xReal)
-	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			ip := strings.TrimSpace(parts[0])
-			if ip != "" {
-				return ip
-			}
-		}
-	}
-
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	return ClientIP(r)
 }
