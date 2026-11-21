@@ -28,7 +28,9 @@ func DefaultCORSOptions() CORSOptions {
 			"X-Auth-Token",
 			"Origin",
 		},
-		AllowCredentials: true,
+		// Sign-in uses a bearer token in a header, not cookies, so browsers
+		// never need to send credentials cross-origin.
+		AllowCredentials: false,
 		MaxAge:           86400, // 24 hours
 	}
 }
